@@ -219,7 +219,7 @@ async function runScraper() {
             Keyword: job.keyword,
             Link: { f: `HYPERLINK("${job.link}", "Apply")` }
         }));
-        KEYWORDS.forEach(kw => {
+        for (const kw of KEYWORDS) {
             const jobsForKw = orderedData.filter(j => j.Keyword === kw);
             
             jobsForKw.sort((a, b) => {
@@ -247,7 +247,7 @@ async function runScraper() {
             };
 
             XLSX.utils.book_append_sheet(workbook, worksheet, kw);
-        });
+        };
 
         const summaryData = [
             ["Indeed Job Report"],
