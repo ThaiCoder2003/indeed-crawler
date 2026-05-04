@@ -5,11 +5,11 @@ import fs from 'fs';
 import FormData from 'form-data';
 import { createRequire } from 'module';
 
-const appScript = "https://script.google.com/macros/s/AKfycby286r1b4pv6nptY1CCD1JShabaXJPLe1LbKzCj8eEZVbIL4jo_5DkqCyZ8VF_iKB46/exec";
+const appScript = "https://script.google.com/macros/s/AKfycbzVWzLMkuZfG8xcxzPjOQ0DDKnaf3PHBvAEVjvXjykjjObw0vqthbNiBTApkfzySHDJ/exec";
 const require = createRequire(import.meta.url);
 let existingKeys = new Set();
 
-const KEYWORDS = ["Analyst", "CFA", "CEO", "Data Science", "FP&A"];
+const KEYWORDS = ["Analyst", "Backend Developer", "CEO", "Data Science"];
 
 // --- HÀM UPLOAD LITTERBOX, TEAMS, TELEGRAM giữ nguyên như cũ ---
 async function uploadToCatbox(filePath) {
@@ -64,15 +64,11 @@ async function sendToTeams(totalJobs, fileLink) {
     }
 }
 
-async function sendToGoogleSheets(jobs, query) {
-  const sheetName = (query || "Indeed Crawl")
-    .replace(/[\/\\\?\*\[\]]/g, "")
-    .substring(0, 100);
-  
-  const payload = {
-    sheetName,
-    jobs
-  };
+async function sendToGoogleSheets(jobs) {  
+    const payload = {
+        sheetName: "Indeed Crawl",
+        jobs
+    };
 
     try {
         const response = await axios.post(appScript, payload, {
@@ -97,9 +93,9 @@ async function runScraper() {
     let allJobs = [];
 
     for (const kw of KEYWORDS) {
-        const targetUrl = `https://www.indeed.com/jobs?q=${encodeURIComponent(kw + ' $60,000')}&l=California&radius=25&fromage=3`;
+        const targetUrl = `https://www.indeed.com/jobs?q=${encodeURIComponent(kw)}&l=California&radius=25&fromage=3`;
         let attempts = 0;
-        const maxAttempts = 3;
+        const maxAttempts = 2;
 
         let newJobsForThisKw = [];
 
@@ -109,6 +105,10 @@ async function runScraper() {
                 console.log(`🔍 Quét: ${kw} (Lần ${attempts})...`);
 
                 const response = await axios.get('http://api.scraperapi.com', {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                        'Accept-Language': 'en-US,en;q=0.9'
+                    },
                     params: {
                         api_key: process.env.SCRAPER_API_KEY,
                         url: targetUrl,
@@ -117,7 +117,13 @@ async function runScraper() {
                     timeout: 60000
                 });
 
+                if (!response.data.includes("job_seen_beacon")) {
+                    console.log("🚫 Blocked or invalid page");
+                    break;
+                }
+
                 const $ = cheerio.load(response.data);
+
                 let count = 0;
 
                 $('.job_seen_beacon').each((i, el) => {
@@ -146,22 +152,24 @@ async function runScraper() {
                     // ==================== LẤY SALARY - CHỈ GIỮ PHẦN SỐ TIỀN ====================
                     let salary = "";
 
-                    let salaryEl = $(el).find('[data-testid="attribute_snippet_testid"], .salary-snippet-container, .estimated-salary, [class*="salary-snippet"], .salary-section');
+                    $(el).find('[role="group"]').each((i, group) => {
+                        const groupTitle = $(group).find('h3').text().trim().toLowerCase();
 
-                    if (salaryEl.length) {
-                        salary = salaryEl.text().trim();
-                    }
+                        if (groupTitle.includes("pay") || groupTitle.includes("salary")) {
+                            const text = $(group).find('span').first().text().trim();
 
-                    salary = salary.replace(/\s+/g, ' ').trim();
+                            const match = text.match(
+                                /\$[\d,.]+k?(?:\+)?(?:\s*[–-]\s*\$[\d,.]+k?)?(?:\s*(?:\/|per)?\s*(?:year|yr|hour|hr|week|mo))?/i
+                            );
 
-                    // Chỉ giữ nếu có dấu $
-                    const match = salary.match(/\$[\d,.]+k?(?:\+)?(?:\s*-\s*\$[\d,.]+k?)?(?:\s*(?:\/|per)?\s*(?:year|yr|hour|hr|week|mo))?/i);
-                    salary = match ? match[0] : "";
+                            if (match) salary = match[0];
+                        }
+                    });
                     // =================================================================
 
                     const location = $(el).find('[data-testid="text-location"]').text().trim() ||
                                      $(el).find('.companyLocation').text().trim() ||
-                                     "California, BC";
+                                     "California, USA";
 
                     const company = $(el).find('[data-testid="company-name"]').text().trim() || "N/A";
 
@@ -200,12 +208,6 @@ async function runScraper() {
     }
 
     if (allJobs.length > 0) {
-        allJobs.sort((a, b) => {
-            if (a.salary && !b.salary) return -1;
-            if (!a.salary && b.salary) return 1;
-            return a.company.localeCompare(b.company);
-        });
-
         const fileName = `Indeed_Jobs_${new Date().toISOString().slice(0,10)}.xlsx`;
         const workbook = XLSX.utils.book_new();
         const orderedData = allJobs.map(job => ({
@@ -219,7 +221,15 @@ async function runScraper() {
         }));
         KEYWORDS.forEach(kw => {
             const jobsForKw = orderedData.filter(j => j.Keyword === kw);
-            if (jobsForKw.length === 0) return;
+            
+            jobsForKw.sort((a, b) => {
+                if (a.salary && !b.salary) return -1;
+                if (!a.salary && b.salary) return 1;
+                return a.company.localeCompare(b.company);
+            });
+
+
+            if (jobsForKw.length === 0) continue;
             const worksheet = XLSX.utils.json_to_sheet(jobsForKw);
 
             worksheet['!cols'] = [
@@ -258,7 +268,7 @@ async function runScraper() {
 
         await Promise.all([
             // sendToTeams(allJobs.length, fileLink),
-            sendToGoogleSheets(allJobs, "")
+            sendToGoogleSheets(allJobs)
         ]);
 
         console.log("🏁 Hoàn tất!");
