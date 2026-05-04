@@ -223,9 +223,9 @@ async function runScraper() {
             const jobsForKw = orderedData.filter(j => j.Keyword === kw);
             
             jobsForKw.sort((a, b) => {
-                if (a.salary && !b.salary) return -1;
-                if (!a.salary && b.salary) return 1;
-                return a.company.localeCompare(b.company);
+                if (a.Salary && !b.Salary) return -1;
+                if (!a.Salary && b.Salary) return 1;
+                return a.Company.localeCompare(b.Csompany);
             });
 
 
