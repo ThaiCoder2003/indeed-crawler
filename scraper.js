@@ -1,11 +1,13 @@
-import axios from 'axios';
+import axios, { all } from 'axios';
 import XLSX from 'xlsx';
 import * as cheerio from 'cheerio';
 import fs from 'fs';
 import FormData from 'form-data';
 import { createRequire } from 'module';
 
+const appScript = "https://script.google.com/macros/s/AKfycby286r1b4pv6nptY1CCD1JShabaXJPLe1LbKzCj8eEZVbIL4jo_5DkqCyZ8VF_iKB46/exec";
 const require = createRequire(import.meta.url);
+let existingKeys = new Set();
 
 const KEYWORDS = ["Analyst", "CFA", "CEO", "Data Science", "FP&A"];
 
@@ -31,18 +33,18 @@ async function uploadToCatbox(filePath) {
 }
 
 async function sendToTeams(totalJobs, fileLink) {
-    const webhookUrl = process.env.TEAMS_WEBHOOK_URL;
+    const webhookUrl = process.env.WEBHOOK_TEAMS;
     if (!webhookUrl) return;
 
     const adaptiveCard = {
         "type": "AdaptiveCard",
         "version": "1.4",
         "body": [
-            { "type": "TextBlock", "text": "🚀 CẬP NHẬT JOB MỚI TẠI VANCOUVER", "weight": "Bolder", "size": "Medium", "color": "Accent" },
+            { "type": "TextBlock", "text": "🚀 CẬP NHẬT JOB MỚI TẠI CALIFORNIA", "weight": "Bolder", "size": "Medium", "color": "Accent" },
             {
                 "type": "FactSet",
                 "facts": [
-                    { "title": "Nguồn:", "value": "Indeed Canada" },
+                    { "title": "Nguồn:", "value": "Indeed United States" },
                     { "title": "Số lượng:", "value": `${totalJobs} jobs` },
                     { "title": "Trạng thái:", "value": "Đã sẵn sàng ✅" }
                 ]
@@ -62,29 +64,31 @@ async function sendToTeams(totalJobs, fileLink) {
     }
 }
 
-async function sendTelegramAlert(message) {
-    const botToken = process.env.TELEGRAM_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
-    if (!botToken || !chatId) return;
-    try {
-        await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            chat_id: chatId, text: message, parse_mode: 'HTML'
-        });
-    } catch (e) { console.error("❌ Telegram Alert Error:", e.message); }
-}
+async function sendToGoogleSheets(jobs, query) {
+  const sheetName = (query || "Indeed Crawl")
+    .replace(/[\/\\\?\*\[\]]/g, "")
+    .substring(0, 100);
+  
+  const payload = {
+    sheetName,
+    jobs
+  };
 
-async function sendTelegramFile(filePath) {
-    const botToken = process.env.TELEGRAM_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
-    if (!botToken || !chatId || !fs.existsSync(filePath)) return;
-    const form = new FormData();
-    form.append('chat_id', chatId);
-    form.append('document', fs.createReadStream(filePath));
     try {
-        await axios.post(`https://api.telegram.org/bot${botToken}/sendDocument`, form, {
-            headers: form.getHeaders()
+        const response = await axios.post(appScript, payload, {
+            headers: { "Content-Type": "application/json" }
         });
-    } catch (e) { console.error("❌ Telegram File Error:", e.message); }
+
+        if (response.data && response.data.success) {
+            console.log("✅ Đã gửi dữ liệu lên Google Sheets thành công!");
+        }
+
+        else {
+            console.error("❌ Lỗi từ Google Sheets:", response.data.error || "Unknown error");
+        }
+    } catch (error) {
+        console.error("❌ Lỗi gửi lên Google Sheets:", error.message);
+    }
 }
 
 // --- HÀM CHẠY CHÍNH ---
@@ -93,9 +97,11 @@ async function runScraper() {
     let allJobs = [];
 
     for (const kw of KEYWORDS) {
-        const targetUrl = `https://ca.indeed.com/jobs?q=${encodeURIComponent(kw + ' $60,000')}&l=Vancouver%2C+BC&radius=25&fromage=3`;
+        const targetUrl = `https://www.indeed.com/jobs?q=${encodeURIComponent(kw + ' $60,000')}&l=California&radius=25&fromage=3`;
         let attempts = 0;
         const maxAttempts = 3;
+
+        let newJobsForThisKw = [];
 
         while (attempts < maxAttempts) {
             try {
@@ -106,7 +112,7 @@ async function runScraper() {
                     params: {
                         api_key: process.env.SCRAPER_API_KEY,
                         url: targetUrl,
-                        country_code: 'ca'
+                        country_code: 'us'
                     },
                     timeout: 60000
                 });
@@ -116,11 +122,26 @@ async function runScraper() {
 
                 $('.job_seen_beacon').each((i, el) => {
                     const titleEl = $(el).find('h2.jobTitle, a.jcs-JobTitle');
+
                     const title = titleEl.text().trim();
 
                     if (!title) return;
 
-                    const relativeLink = titleEl.find('a').attr('href') || titleEl.attr('href');
+                    const jk = $(el).find('[data-jk]').first().attr('data-jk') || 
+                            titleEl.attr('data-jk') || 
+                            titleEl.attr('href')?.match(/jk=([^&]+)/)?.[1];
+
+                    if (!jk) {
+                        console.log("⚠️ Missing jk:", title);
+                        return;
+                    }
+
+                    if (existingKeys.has(jk)) {
+                        console.log(`⏭️ Bỏ qua job đã tồn tại: ${title}`);
+                        return;
+                    }
+
+                    const relativeLink = jk ? `https://www.indeed.com/viewjob?jk=${jk}` : (titleEl.find('a').attr('href') || titleEl.attr('href'));
 
                     // ==================== LẤY SALARY - CHỈ GIỮ PHẦN SỐ TIỀN ====================
                     let salary = "";
@@ -134,42 +155,32 @@ async function runScraper() {
                     salary = salary.replace(/\s+/g, ' ').trim();
 
                     // Chỉ giữ nếu có dấu $
-                    if (salary.includes('$')) {
-                        // Loại bỏ các từ thừa: Full-time, Permanent, +1, Mon, Ove, etc.
-                        salary = salary
-                            .replace(/Full-time/gi, '')
-                            .replace(/Permanent/gi, '')
-                            .replace(/Full-time/gi, '')   // phòng trường hợp lặp
-                            .replace(/\+1/gi, '')
-                            .replace(/Mon/gi, '')
-                            .replace(/Ove/gi, '')
-                            .replace(/\s*-\s*Permanent/gi, '')
-                            .replace(/\s*-\s*Full-time/gi, '')
-                            .trim();
-                    } else {
-                        salary = "";
-                    }
+                    const match = salary.match(/\$[\d,.]+k?(?:\+)?(?:\s*-\s*\$[\d,.]+k?)?(?:\s*(?:\/|per)?\s*(?:year|yr|hour|hr|week|mo))?/i);
+                    salary = match ? match[0] : "";
                     // =================================================================
 
                     const location = $(el).find('[data-testid="text-location"]').text().trim() ||
                                      $(el).find('.companyLocation').text().trim() ||
-                                     "Vancouver, BC";
+                                     "California, BC";
 
                     const company = $(el).find('[data-testid="company-name"]').text().trim() || "N/A";
 
                     const isQuickApply = $(el).find('.iaIcon').length > 0;
                     const applyMethod = isQuickApply ? "Indeed Quick Apply" : "Company Website";
 
-                    allJobs.push({
-                        Title: title,
-                        Company: company,
-                        Salary: salary,        // ← sạch sẽ chỉ còn số lương
-                        Location: location,
-                        'Apply Method': applyMethod,
-                        Link: relativeLink ? `https://ca.indeed.com${relativeLink}` : 'N/A',
-                        Keyword: kw
-                    });
+                    const job = {
+                        key: jk,
+                        title: title,
+                        company: company,
+                        salary: salary,
+                        location: location,
+                        apply_method: applyMethod,
+                        link: relativeLink ? relativeLink : 'N/A',
+                        keyword: kw
+                    };
 
+                    newJobsForThisKw.push(job);
+                    existingKeys.add(jk);
                     count++;
                 });
 
@@ -181,30 +192,78 @@ async function runScraper() {
                 if (attempts < maxAttempts) await new Promise(r => setTimeout(r, 5000));
             }
         }
+
+        if (newJobsForThisKw.length > 0) {
+            console.log(`✅ Từ khóa "${kw}" có ${newJobsForThisKw.length} job mới.`);
+            allJobs = allJobs.concat(newJobsForThisKw);
+        }
     }
 
     if (allJobs.length > 0) {
-        const fileName = `Indeed_Jobs_${new Date().toISOString().slice(0,10)}.xlsx`;
+        allJobs.sort((a, b) => {
+            if (a.salary && !b.salary) return -1;
+            if (!a.salary && b.salary) return 1;
+            return a.company.localeCompare(b.company);
+        });
 
-        const worksheet = XLSX.utils.json_to_sheet(allJobs);
+        const fileName = `Indeed_Jobs_${new Date().toISOString().slice(0,10)}.xlsx`;
         const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Jobs");
+        const orderedData = allJobs.map(job => ({
+            Title: job.title,
+            Company: job.company,
+            Location: job.location,
+            Salary: job.salary,
+            "Apply Method": job.apply_method,
+            Keyword: job.keyword,
+            Link: { f: `HYPERLINK("${job.link}", "Apply")` }
+        }));
+        KEYWORDS.forEach(kw => {
+            const jobsForKw = orderedData.filter(j => j.Keyword === kw);
+            if (jobsForKw.length === 0) return;
+            const worksheet = XLSX.utils.json_to_sheet(jobsForKw);
+
+            worksheet['!cols'] = [
+                { wch: 40 }, // Title
+                { wch: 25 }, // Company
+                { wch: 20 }, // Location
+                { wch: 15 }, // Salary
+                { wch: 20 }, // Apply Method
+                { wch: 20 }, // Keyword
+                { wch: 15 }  // Link
+            ];
+            worksheet['!freeze'] = { ySplit: 1 };
+            worksheet['!autofilter'] = {
+                ref: "A1:G1"
+            };
+
+            XLSX.utils.book_append_sheet(workbook, worksheet, kw);
+        });
+
+        const summaryData = [
+            ["Indeed Job Report"],
+            [""],
+            ["Date", new Date().toLocaleString()],
+            ["Total Jobs", allJobs.length],
+            ["Keywords", KEYWORDS.join(", ")],
+            ["Location", "California, USA"]
+        ];
+
+        const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+        XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
         XLSX.writeFile(workbook, fileName);
 
         console.log(`📊 Đã lưu ${allJobs.length} jobs vào ${fileName}`);
 
-        const fileLink = await uploadToCatbox(fileName);
+        // const fileLink = await uploadToCatbox(fileName);
 
         await Promise.all([
-            sendTelegramAlert(`✅ Tìm thấy ${allJobs.length} jobs mới!`),
-            sendTelegramFile(fileName),
-            sendToTeams(allJobs.length, fileLink)
+            // sendToTeams(allJobs.length, fileLink),
+            sendToGoogleSheets(allJobs, "")
         ]);
 
         console.log("🏁 Hoàn tất!");
     } else {
         console.log("❌ Không tìm thấy job nào.");
-        await sendTelegramAlert("❌ Không tìm thấy job mới nào.");
     }
 }
 
