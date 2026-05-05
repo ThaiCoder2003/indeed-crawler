@@ -49,7 +49,7 @@ async function sendToTeams(totalJobs, fileLink) {
 
     const adaptiveCard = {
         "type": "AdaptiveCard",
-        "version": "1.4",
+        "version": "1.2",
         "body": [
             { 
                 "type": "TextBlock", 
@@ -78,6 +78,7 @@ async function sendToTeams(totalJobs, fileLink) {
 
     const payload = {
         type: "message",
+        summary: "Indeed Job Update",
         attachments: [
             {
                 contentType: "application/vnd.microsoft.card.adaptive",
@@ -87,8 +88,14 @@ async function sendToTeams(totalJobs, fileLink) {
     };
 
     try {
-        await axios.post(webhookUrl, payload);
-        console.log("✅ [Teams] Đã gửi Card thành công!");
+        await axios.post(webhookUrl, payload, {
+            headers: { "Content-Type": "application/json" },
+            validateStatus: (status) => {
+                console.log("📡 Teams status:", status);
+                return status < 500; // don't ignore 4xx
+            }
+        });
+        console.log("Teams response:", res.status, res.data);
     } catch (error) {
         console.error("❌ [Teams] Lỗi gửi:", error.message);
     }
