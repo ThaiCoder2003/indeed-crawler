@@ -88,7 +88,7 @@ async function sendToTeams(totalJobs, fileLink) {
     };
 
     try {
-        await axios.post(webhookUrl, payload, {
+        const res = await axios.post(webhookUrl, payload, {
             headers: { "Content-Type": "application/json" },
             validateStatus: (status) => {
                 console.log("📡 Teams status:", status);
