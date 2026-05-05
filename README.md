@@ -92,8 +92,4 @@ File Excel được upload lên Litterbox chỉ tồn tại 24 giờ.
 
 
 Hỗ trợ
-<<<<<<< HEAD
 Nếu gặp lỗi hoặc muốn thêm tính năng (ví dụ: gửi Gmail, lưu vào Google Drive, thêm cột Posted Date...), hãy tạo Issue hoặc liên hệ.
-=======
-Nếu gặp lỗi hoặc muốn thêm tính năng (ví dụ: gửi Gmail, lưu vào Google Drive, thêm cột Posted Date...), hãy tạo Issue hoặc liên hệ.
->>>>>>> 62dce1bc07d87248fe1baf089f66944f68de847c

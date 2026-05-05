@@ -5,28 +5,35 @@ import fs from 'fs';
 import FormData from 'form-data';
 import { createRequire } from 'module';
 
-const appScript = "https://script.google.com/macros/s/AKfycbzVWzLMkuZfG8xcxzPjOQ0DDKnaf3PHBvAEVjvXjykjjObw0vqthbNiBTApkfzySHDJ/exec";
+const appScript = "https://script.google.com/macros/s/AKfycbws8LG6cOh_lvM3lM2EU0dv4Gv_AMpRb5iJrojS5GQa5OSfVGeR3fbKAf6I56VvGR4S/exec";
 const require = createRequire(import.meta.url);
 let existingKeys = new Set();
 
 const KEYWORDS = ["Analyst", "Backend Developer", "CEO", "Data Science"];
 
 // --- HÀM UPLOAD LITTERBOX, TEAMS, TELEGRAM giữ nguyên như cũ ---
-async function uploadToCatbox(filePath) {
+async function uploadToCatbox(filePath, retries = 2) {
     try {
         const form = new FormData();
         form.append('reqtype', 'fileupload');
         form.append('time', '24h');
         form.append('fileToUpload', fs.createReadStream(filePath));
 
-        const response = await axios.post('https://litterbox.catbox.moe/resources/internals/api.php', form, {
-            headers: form.getHeaders()
-        });
+        const response = await axios.post(
+            'https://litterbox.catbox.moe/resources/internals/api.php', 
+            form, 
+            { headers: form.getHeaders(), timeout: 30000 }
+        );
 
         const fileLink = response.data.trim();
-        if (fileLink.includes('https://')) return fileLink;
+        if (fileLink.startsWith('https://litterbox.catbox.moe/')) return fileLink;
         throw new Error("Invalid link: " + fileLink);
     } catch (error) {
+        if (retries > 0) {
+            console.warn(`⚠️ Lỗi Catbox, thử lại (${3 - retries}/2)...`);
+            await new Promise(r => setTimeout(r, 5000));
+            return uploadToCatbox(filePath, retries - 1);
+        }
         console.error("❌ Lỗi Catbox:", error.message);
         return `https://github.com/${process.env.GITHUB_REPOSITORY}/actions`;
     }
@@ -34,13 +41,22 @@ async function uploadToCatbox(filePath) {
 
 async function sendToTeams(totalJobs, fileLink) {
     const webhookUrl = process.env.WEBHOOK_TEAMS;
-    if (!webhookUrl) return;
+    if (!webhookUrl) {
+        console.log("⚠️ No Teams webhook, skipping...");
+        return;
+    }
+
 
     const adaptiveCard = {
         "type": "AdaptiveCard",
         "version": "1.4",
         "body": [
-            { "type": "TextBlock", "text": "🚀 CẬP NHẬT JOB MỚI TẠI CALIFORNIA", "weight": "Bolder", "size": "Medium", "color": "Accent" },
+            { 
+                "type": "TextBlock", 
+                "text": "🚀 CẬP NHẬT JOB MỚI TẠI CALIFORNIA", 
+                "weight": "Bolder", 
+                "size": "Medium", 
+                "color": "Accent" },
             {
                 "type": "FactSet",
                 "facts": [
@@ -51,17 +67,40 @@ async function sendToTeams(totalJobs, fileLink) {
             }
         ],
         "actions": [
-            { "type": "Action.OpenUrl", "title": "📥 TẢI FILE EXCEL VỀ MÁY", "url": fileLink }
+            { 
+                "type": "Action.OpenUrl", 
+                "title": "📥 TẢI FILE EXCEL VỀ MÁY", 
+                "url": fileLink 
+            }
         ],
         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json"
     };
 
+    const payload = {
+        type: "message",
+        attachments: [
+            {
+                contentType: "application/vnd.microsoft.card.adaptive",
+                content: adaptiveCard
+            }
+        ]
+    };
+
     try {
-        await axios.post(webhookUrl, adaptiveCard);
+        await axios.post(webhookUrl, payload);
         console.log("✅ [Teams] Đã gửi Card thành công!");
     } catch (error) {
         console.error("❌ [Teams] Lỗi gửi:", error.message);
     }
+}
+
+function parseSalary(s) {
+    if (!s) return 0;
+
+    const match = s.match(/\$([\d,.]+)/);
+    if (!match) return 0;
+
+    return parseFloat(match[1].replace(/,/g, ""));
 }
 
 async function sendToGoogleSheets(jobs) {  
@@ -75,12 +114,12 @@ async function sendToGoogleSheets(jobs) {
             headers: { "Content-Type": "application/json" }
         });
 
-        if (response.data && response.data.success) {
+        if (response.data && response.data.status === "success") {
             console.log("✅ Đã gửi dữ liệu lên Google Sheets thành công!");
         }
 
         else {
-            console.error("❌ Lỗi từ Google Sheets:", response.data.error || "Unknown error");
+            console.error("❌ Lỗi từ Google Sheets:", response.data.message || "Unknown error");
         }
     } catch (error) {
         console.error("❌ Lỗi gửi lên Google Sheets:", error.message);
@@ -152,19 +191,21 @@ async function runScraper() {
                     // ==================== LẤY SALARY - CHỈ GIỮ PHẦN SỐ TIỀN ====================
                     let salary = "";
 
-                    $(el).find('[role="group"]').each((i, group) => {
-                        const groupTitle = $(group).find('h3').text().trim().toLowerCase();
 
-                        if (groupTitle.includes("pay") || groupTitle.includes("salary")) {
-                            const text = $(group).find('span').first().text().trim();
+                    let salaryEl = $(el).find('[data-testid="attribute_snippet_testid"], .salary-snippet-container, .estimated-salary, [class*="salary-snippet"], .salary-section');
 
-                            const match = text.match(
-                                /\$[\d,.]+k?(?:\+)?(?:\s*[–-]\s*\$[\d,.]+k?)?(?:\s*(?:\/|per)?\s*(?:year|yr|hour|hr|week|mo))?/i
-                            );
-
-                            if (match) salary = match[0];
+                    if (salaryEl.length) {
+                        const text = salaryEl.first().text().trim();
+                        const match = text.match(
+                            /\$[\d,.]+k?(?:\+)?(?:\s*[–-]\s*\$[\d,.]+k?)?(?:\s*(?:\/|per)?\s*(?:year|yr|hour|hr|week|mo))?/i
+                        );
+                        if (match) {
+                            salary = match[0].replace(/\s/g, '');
+                        } else {
+                            salary = text;
                         }
-                    });
+                    }
+
                     // =================================================================
 
                     const location = $(el).find('[data-testid="text-location"]').text().trim() ||
@@ -217,15 +258,17 @@ async function runScraper() {
             Salary: job.salary,
             "Apply Method": job.apply_method,
             Keyword: job.keyword,
-            Link: { f: `HYPERLINK("${job.link}", "Apply")` }
+            Link: { f: `HYPERLINK("${job.link.replace(/"/g, '""')}", "Apply")` }
         }));
         for (const kw of KEYWORDS) {
             const jobsForKw = orderedData.filter(j => j.Keyword === kw);
             
             jobsForKw.sort((a, b) => {
-                if (a.Salary && !b.Salary) return -1;
-                if (!a.Salary && b.Salary) return 1;
-                return a.Company.localeCompare(b.Csompany);
+                const salaryA = parseSalary(a.Salary);
+                const salaryB = parseSalary(b.Salary);
+
+                if (salaryA !== salaryB) return salaryB - salaryA; // high → low
+                return a.Company.localeCompare(b.Company);
             });
 
 
@@ -246,7 +289,9 @@ async function runScraper() {
                 ref: "A1:G1"
             };
 
-            XLSX.utils.book_append_sheet(workbook, worksheet, kw);
+            const safeName = kw.replace(/[\\/?*[\]:]/g, "").substring(0, 31);
+
+            XLSX.utils.book_append_sheet(workbook, worksheet, safeName);
         };
 
         const summaryData = [
@@ -264,7 +309,7 @@ async function runScraper() {
 
         console.log(`📊 Đã lưu ${allJobs.length} jobs vào ${fileName}`);
 
-        // const fileLink = await uploadToCatbox(fileName);
+        const fileLink = await uploadToCatbox(fileName);
 
         await Promise.all([
             // sendToTeams(allJobs.length, fileLink),
