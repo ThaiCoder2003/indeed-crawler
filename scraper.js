@@ -26,7 +26,7 @@ async function uploadToCatbox(filePath, retries = 2) {
         );
 
         const fileLink = response.data.trim();
-        if (fileLink.startsWith('https://litterbox.catbox.moe/')) return fileLink;
+        if (fileLink.startsWith('https://litter.catbox.moe/')) return fileLink;
         throw new Error("Invalid link: " + fileLink);
     } catch (error) {
         if (retries > 0) {
@@ -312,7 +312,7 @@ async function runScraper() {
         const fileLink = await uploadToCatbox(fileName);
 
         await Promise.all([
-            // sendToTeams(allJobs.length, fileLink),
+            sendToTeams(allJobs.length, fileLink),
             sendToGoogleSheets(allJobs)
         ]);
 
