@@ -5,7 +5,7 @@ import fs from 'fs';
 import FormData from 'form-data';
 import { createRequire } from 'module';
 
-const appScript = "https://script.google.com/macros/s/AKfycbws8LG6cOh_lvM3lM2EU0dv4Gv_AMpRb5iJrojS5GQa5OSfVGeR3fbKAf6I56VvGR4S/exec";
+const appScript = "https://script.google.com/macros/s/AKfycbw-wLwxjqJmGatKRG2-nsuiCyQ-RZgBzsybjHpvAxiPR2qgsi8zJJGirb4LuaJ9N0C_/exec";
 const require = createRequire(import.meta.url);
 let existingKeys = new Set();
 
@@ -16,17 +16,17 @@ async function uploadToCatbox(filePath, retries = 2) {
     try {
         const form = new FormData();
         form.append('reqtype', 'fileupload');
-        form.append('time', '24h');
         form.append('fileToUpload', fs.createReadStream(filePath));
 
         const response = await axios.post(
-            'https://litterbox.catbox.moe/resources/internals/api.php', 
-            form, 
+            'https://catbox.moe/user/api.php',
+            form,
             { headers: form.getHeaders(), timeout: 30000 }
         );
 
         const fileLink = response.data.trim();
-        if (fileLink.startsWith('https://litter.catbox.moe/')) return fileLink;
+
+        if (fileLink.startsWith('https://files.catbox.moe/')) return fileLink;
         throw new Error("Invalid link: " + fileLink);
     } catch (error) {
         if (retries > 0) {
@@ -39,68 +39,6 @@ async function uploadToCatbox(filePath, retries = 2) {
     }
 }
 
-async function sendToTeams(totalJobs, fileLink) {
-    const webhookUrl = process.env.WEBHOOK_TEAMS;
-    if (!webhookUrl) {
-        console.log("⚠️ No Teams webhook, skipping...");
-        return;
-    }
-
-
-    const adaptiveCard = {
-        "type": "AdaptiveCard",
-        "version": "1.2",
-        "body": [
-            { 
-                "type": "TextBlock", 
-                "text": "🚀 CẬP NHẬT JOB MỚI TẠI CALIFORNIA", 
-                "weight": "Bolder", 
-                "size": "Medium", 
-                "color": "Accent" },
-            {
-                "type": "FactSet",
-                "facts": [
-                    { "title": "Nguồn:", "value": "Indeed United States" },
-                    { "title": "Số lượng:", "value": `${totalJobs} jobs` },
-                    { "title": "Trạng thái:", "value": "Đã sẵn sàng ✅" }
-                ]
-            }
-        ],
-        "actions": [
-            { 
-                "type": "Action.OpenUrl", 
-                "title": "📥 TẢI FILE EXCEL VỀ MÁY", 
-                "url": fileLink 
-            }
-        ],
-        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json"
-    };
-
-    const payload = {
-        type: "message",
-        summary: "Indeed Job Update",
-        attachments: [
-            {
-                contentType: "application/vnd.microsoft.card.adaptive",
-                content: adaptiveCard
-            }
-        ]
-    };
-
-    try {
-        const res = await axios.post(webhookUrl, payload, {
-            headers: { "Content-Type": "application/json" },
-            validateStatus: (status) => {
-                console.log("📡 Teams status:", status);
-                return status < 500; // don't ignore 4xx
-            }
-        });
-        console.log("Teams response:", res.status, res.data);
-    } catch (error) {
-        console.error("❌ [Teams] Lỗi gửi:", error.message);
-    }
-}
-
 function parseSalary(s) {
     if (!s) return 0;
 
@@ -110,10 +48,12 @@ function parseSalary(s) {
     return parseFloat(match[1].replace(/,/g, ""));
 }
 
-async function sendToGoogleSheets(jobs) {  
+async function sendToGoogleSheets(jobs, totalJobs, fileLink) {  
     const payload = {
-        sheetName: "Indeed Crawl",
-        jobs
+        sheetName: "Report",
+        jobs,
+        totalJobs,
+        fileLink
     };
 
     try {
@@ -199,7 +139,7 @@ async function runScraper() {
                     let salary = "";
 
 
-                    let salaryEl = $(el).find('[data-testid="attribute_snippet_testid"], .salary-snippet-container, .estimated-salary, [class*="salary-snippet"], .salary-section');
+                    const salaryEl = $(el).find('[data-testid="attribute_snippet_testid"], .salary-snippet-container, .estimated-salary, [class*="salary-snippet"], .salary-section');
 
                     if (salaryEl.length) {
                         const text = salaryEl.first().text().trim();
@@ -319,8 +259,7 @@ async function runScraper() {
         const fileLink = await uploadToCatbox(fileName);
 
         await Promise.all([
-            sendToTeams(allJobs.length, fileLink),
-            sendToGoogleSheets(allJobs)
+            sendToGoogleSheets(allJobs, allJobs.length, fileLink)
         ]);
 
         console.log("🏁 Hoàn tất!");
