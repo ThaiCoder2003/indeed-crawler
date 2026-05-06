@@ -21,7 +21,14 @@ async function uploadToCatbox(filePath, retries = 2) {
         const response = await axios.post(
             'https://catbox.moe/user/api.php',
             form,
-            { headers: form.getHeaders(), timeout: 30000 }
+            { 
+                headers: {
+                    ...form.getHeaders(),
+                    'User-Agent': 'Mozilla/5.0',
+                    'Accept': '*/*'
+                },
+                timeout: 30000
+            }
         );
 
         const fileLink = response.data.trim();
@@ -29,12 +36,17 @@ async function uploadToCatbox(filePath, retries = 2) {
         if (fileLink.startsWith('https://files.catbox.moe/')) return fileLink;
         throw new Error("Invalid link: " + fileLink);
     } catch (error) {
+        console.error("❌ Catbox full error:",
+            error.response?.status,
+            error.response?.data || error.message
+        );
+
         if (retries > 0) {
-            console.warn(`⚠️ Lỗi Catbox, thử lại (${3 - retries}/2)...`);
+            console.warn(`⚠️ Retry (${3 - retries}/2)...`);
             await new Promise(r => setTimeout(r, 5000));
             return uploadToCatbox(filePath, retries - 1);
         }
-        console.error("❌ Lỗi Catbox:", error.message);
+
         return `https://github.com/${process.env.GITHUB_REPOSITORY}/actions`;
     }
 }
