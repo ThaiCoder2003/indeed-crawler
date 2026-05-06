@@ -4,29 +4,17 @@ import * as cheerio from 'cheerio';
 import fs from 'fs';
 import FormData from 'form-data';
 import { createRequire } from 'module';
-import * as Catbox from 'node-catbox';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
-const appScript = "https://script.google.com/macros/s/AKfycbw-wLwxjqJmGatKRG2-nsuiCyQ-RZgBzsybjHpvAxiPR2qgsi8zJJGirb4LuaJ9N0C_/exec";
+const Catbox = require('node-catbox');
+const catbox = new Catbox();
+
+const appScript = "https://script.google.com/macros/s/AKfycbwZyM19-hv2Z9Fz1z4lgnaOftjC4mDsCQrsD9IxTI3ChnjUBmoReELMOhQ8dIqsOHiY/exec";
 const require = createRequire(import.meta.url);
 let existingKeys = new Set();
 
 const KEYWORDS = ["Backend Developer"];
-
-// --- HÀM UPLOAD LITTERBOX, TEAMS, TELEGRAM giữ nguyên như cũ ---
-async function uploadToCatbox(filePath, retries = 2) {
-    try {
-        const url = await catbox.uploadFile({
-            path: filePath
-        });
-
-        console.log("🔗 Catbox:", url);
-        return url;
-
-    } catch (err) {
-        console.error("❌ Catbox error:", err.message);
-        return null;
-    }
-}
 
 function parseSalary(s) {
     if (!s) return 0;
@@ -37,12 +25,9 @@ function parseSalary(s) {
     return parseFloat(match[1].replace(/,/g, ""));
 }
 
-async function sendToGoogleSheets(jobs, totalJobs, fileLink) {  
+async function sendToGoogleSheets(jobs) {  
     const payload = {
-        sheetName: "Report",
         jobs,
-        totalJobs,
-        fileLink
     };
 
     try {
@@ -245,10 +230,8 @@ async function runScraper() {
 
         console.log(`📊 Đã lưu ${allJobs.length} jobs vào ${fileName}`);
 
-        const fileLink = await uploadToCatbox(fileName);
-
         await Promise.all([
-            sendToGoogleSheets(allJobs, allJobs.length, fileLink)
+            sendToGoogleSheets(allJobs)
         ]);
 
         console.log("🏁 Hoàn tất!");
