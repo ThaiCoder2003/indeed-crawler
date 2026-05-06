@@ -5,9 +5,6 @@ import fs from 'fs';
 import FormData from 'form-data';
 import { createRequire } from 'module';
 
-const Catbox = require('node-catbox');
-const catbox = new Catbox();
-
 const appScript = "https://script.google.com/macros/s/AKfycbwZyM19-hv2Z9Fz1z4lgnaOftjC4mDsCQrsD9IxTI3ChnjUBmoReELMOhQ8dIqsOHiY/exec";
 const require = createRequire(import.meta.url);
 let existingKeys = new Set();
