@@ -4,50 +4,27 @@ import * as cheerio from 'cheerio';
 import fs from 'fs';
 import FormData from 'form-data';
 import { createRequire } from 'module';
+import Catbox from 'node-catbox';
 
 const appScript = "https://script.google.com/macros/s/AKfycbw-wLwxjqJmGatKRG2-nsuiCyQ-RZgBzsybjHpvAxiPR2qgsi8zJJGirb4LuaJ9N0C_/exec";
 const require = createRequire(import.meta.url);
 let existingKeys = new Set();
 
-const KEYWORDS = ["Analyst", "Backend Developer", "CEO", "Data Science"];
+const KEYWORDS = ["Analyst", "Backend Developer"];
 
 // --- HÀM UPLOAD LITTERBOX, TEAMS, TELEGRAM giữ nguyên như cũ ---
 async function uploadToCatbox(filePath, retries = 2) {
     try {
-        const form = new FormData();
-        form.append('reqtype', 'fileupload');
-        form.append('fileToUpload', fs.createReadStream(filePath));
+        const url = await catbox.uploadFile({
+            path: filePath
+        });
 
-        const response = await axios.post(
-            'https://catbox.moe/user/api.php',
-            form,
-            { 
-                headers: {
-                    ...form.getHeaders(),
-                    'User-Agent': 'Mozilla/5.0',
-                    'Accept': '*/*'
-                },
-                timeout: 30000
-            }
-        );
+        console.log("🔗 Catbox:", url);
+        return url;
 
-        const fileLink = response.data.trim();
-
-        if (fileLink.startsWith('https://files.catbox.moe/')) return fileLink;
-        throw new Error("Invalid link: " + fileLink);
-    } catch (error) {
-        console.error("❌ Catbox full error:",
-            error.response?.status,
-            error.response?.data || error.message
-        );
-
-        if (retries > 0) {
-            console.warn(`⚠️ Retry (${3 - retries}/2)...`);
-            await new Promise(r => setTimeout(r, 5000));
-            return uploadToCatbox(filePath, retries - 1);
-        }
-
-        return `https://github.com/${process.env.GITHUB_REPOSITORY}/actions`;
+    } catch (err) {
+        console.error("❌ Catbox error:", err.message);
+        return null;
     }
 }
 
