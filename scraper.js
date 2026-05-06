@@ -4,7 +4,7 @@ import * as cheerio from 'cheerio';
 import fs from 'fs';
 import FormData from 'form-data';
 import { createRequire } from 'module';
-import Catbox from 'node-catbox';
+import * as Catbox from 'node-catbox';
 
 const appScript = "https://script.google.com/macros/s/AKfycbw-wLwxjqJmGatKRG2-nsuiCyQ-RZgBzsybjHpvAxiPR2qgsi8zJJGirb4LuaJ9N0C_/exec";
 const require = createRequire(import.meta.url);
