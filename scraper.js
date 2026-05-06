@@ -10,7 +10,7 @@ const appScript = "https://script.google.com/macros/s/AKfycbw-wLwxjqJmGatKRG2-ns
 const require = createRequire(import.meta.url);
 let existingKeys = new Set();
 
-const KEYWORDS = ["Analyst", "Backend Developer"];
+const KEYWORDS = ["Backend Developer"];
 
 // --- HÀM UPLOAD LITTERBOX, TEAMS, TELEGRAM giữ nguyên như cũ ---
 async function uploadToCatbox(filePath, retries = 2) {
