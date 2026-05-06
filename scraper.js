@@ -4,8 +4,6 @@ import * as cheerio from 'cheerio';
 import fs from 'fs';
 import FormData from 'form-data';
 import { createRequire } from 'module';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
 
 const Catbox = require('node-catbox');
 const catbox = new Catbox();
